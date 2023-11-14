@@ -1,3 +1,6 @@
 [submodule "external_libs/FoodSeg103"]
 	path = external_libs/FoodSeg103
 	url = git@github.com:LARC-CMU-SMU/FoodSeg103-Benchmark-v1.git
+[submodule "external_libs/EgoHOS"]
+	path = external_libs/EgoHOS
+	url = git@github.com:owenzlz/EgoHOS.git
