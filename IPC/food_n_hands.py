@@ -4,7 +4,7 @@ import cv2
 import argparse
 import numpy as np
 
-def visualize_twohands_obj1(img, seg_result, alpha = 0.4):
+def colorize_mask(img, seg_result, alpha = 0.4):
     seg_color = np.zeros((img.shape))
     seg_color[seg_result == 0] = (0,    0,   0)     # background
     seg_color[seg_result == 1] = (255,  0,   0)     # left_hand
@@ -12,6 +12,7 @@ def visualize_twohands_obj1(img, seg_result, alpha = 0.4):
     seg_color[seg_result == 3] = (255,  0,   255)   # left_object1
     seg_color[seg_result == 4] = (0,    255, 255)   # right_object1
     seg_color[seg_result == 5] = (0,    255, 0)     # two_object1
+    seg_color[seg_result == 6] = (255,    255, 0)   # food
     vis = img * (1 - alpha) + seg_color * alpha
     return vis
 
@@ -34,12 +35,12 @@ def FoodNhands_Client(host : str, port : int, image, encoding):
 
     mask_image = image_received.copy()
 
-    mask_image[mask_image != 0] = 255
+    mask_image[mask_image != 0] = 6
     
     return mask_image
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Cliente de food_n_hands")
     parser.add_argument("-i", "--path_to_image", required = True, help = "Path/a/imagen que se envía a analizar")
     parser.add_argument("- ip1", "--ip_address1", default = "127.0.0.1", help = "IP en la que abrir el servidor de FoodSeg.")
@@ -58,25 +59,32 @@ if __name__ == "__main__":
 
     try:
         FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, image, encoding)
+        cv2.imshow('Image',FoodSeg_Mask)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
     except Exception as e:
         print("Error FoodSeg: " + str(e))
-        
-    cv2.imshow('Image',FoodSeg_Mask)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        return
 
+        
     try:
         EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, image, encoding)
     except Exception as e:
         print("Error EgoHOS: " + str(e))
+        return
 
-    visualize_twohands_obj1(image, EgoHOS_Mask)
+    try:
+        masked_image = colorize_mask(image, EgoHOS_Mask)
+        cv2.imshow('Masked image',masked_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print("Error with palette and mask found: " + str(e))
+        return
 
-    # Take the average of corresponding pixel values from image1 and image2 where mask is True
-    # result_image = np.zeros_like(image, dtype=np.uint8)
-    # result_image[FoodSeg_Mask] = (image[FoodSeg_Mask] + red_channel[FoodSeg_Mask]) // 2
-    # result_image[EgoHOS_Mask] = (image[EgoHOS_Mask] + blue_channel[EgoHOS_Mask]) // 2
 
-    # cv2.imshow('Image',red_mask)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
