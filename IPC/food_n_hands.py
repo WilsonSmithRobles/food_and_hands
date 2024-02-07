@@ -4,17 +4,17 @@ import cv2
 import argparse
 import numpy as np
 
-def colorize_mask(img, seg_result, alpha = 0.4):
+def colorize_egoHOS_mask(img, seg_result, alpha = 0.4):
     seg_color = np.zeros((img.shape))
-    seg_color[seg_result == 0] = (0,    0,   0)     # background
-    seg_color[seg_result == 1] = (255,  0,   0)     # left_hand
-    seg_color[seg_result == 2] = (0,    0,   255)   # right_hand
-    seg_color[seg_result == 3] = (255,  0,   255)   # left_object1
-    seg_color[seg_result == 4] = (0,    255, 255)   # right_object1
-    seg_color[seg_result == 5] = (0,    255, 0)     # two_object1
-    seg_color[seg_result == 6] = (255,    255, 0)   # food
-    vis = img * (1 - alpha) + seg_color * alpha
-    return vis
+    seg_color[(seg_result == 0).all(-1)] = (0,    0,   0)     # background
+    seg_color[(seg_result == 1).all(-1)] = (255,  0,   0)     # left_hand
+    seg_color[(seg_result == 2).all(-1)] = (0,    0,   255)   # right_hand
+    seg_color[(seg_result == 3).all(-1)] = (255,  0,   255)   # left_object1
+    seg_color[(seg_result == 4).all(-1)] = (0,    255, 255)   # right_object1
+    seg_color[(seg_result == 5).all(-1)] = (0,    255, 0)     # two_object1
+    seg_color[(seg_result == 6).all(-1)] = (255,    255, 0)     # two_object1
+    # vis = img * (1 - alpha) + seg_color * alpha
+    return seg_color
 
 
 def FoodNhands_Client(host : str, port : int, image, encoding):
@@ -32,12 +32,8 @@ def FoodNhands_Client(host : str, port : int, image, encoding):
     image_received = client_protocols.receive_image_data(client_socket, data_length, rows, cols, encoding)
 
     client_socket.close()
-
-    mask_image = image_received.copy()
-
-    mask_image[mask_image != 0] = 6
     
-    return mask_image
+    return image_received
 
 
 def main():
@@ -75,7 +71,8 @@ def main():
         return
 
     try:
-        masked_image = colorize_mask(image, EgoHOS_Mask)
+        masked_image = colorize_egoHOS_mask(image, EgoHOS_Mask)
+        cv2.namedWindow('Masked image', cv2.WINDOW_NORMAL)
         cv2.imshow('Masked image',masked_image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
