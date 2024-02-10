@@ -163,3 +163,5 @@ cython_debug/
 /checkpoints/
 /mydata/
 /videos/
+
+*defs.py
