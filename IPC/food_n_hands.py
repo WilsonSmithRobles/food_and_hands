@@ -3,22 +3,19 @@ import client_protocols
 import cv2
 import argparse
 import numpy as np
-from defs import category_ids
+from loguru import logger
+from defs import foodseg_categories, hands_categories
 
-def colorize_egoHOS_mask(img, seg_result, alpha = 0.4):
-    seg_color = np.zeros((img.shape))
-    seg_color[(seg_result == 0).all(-1)] = (0,    0,   0)     # background
-    seg_color[(seg_result == 1).all(-1)] = (255,  0,   0)     # left_hand
-    seg_color[(seg_result == 2).all(-1)] = (0,    0,   255)   # right_hand
-    seg_color[(seg_result == 3).all(-1)] = (255,  0,   255)   # left_object1
-    seg_color[(seg_result == 4).all(-1)] = (0,    255, 255)   # right_object1
-    seg_color[(seg_result == 5).all(-1)] = (0,    255, 0)     # two_object1
-    seg_color[(seg_result == 6).all(-1)] = (255,    255, 0)     # two_object1
+def colorize_egoHOS_mask(img, seg_result):
+    seg_color = np.zeros(img.shape, dtype=np.uint8)
+    for category in hands_categories:
+        seg_color[(seg_result == category['id']).all(-1)] = category['color']
+    
     return seg_color
 
 def colorize_FoodSeg_Mask(img, seg_result, alpha = 0.4):
     seg_color = np.zeros(img.shape, dtype=np.uint8)
-    for category in category_ids:
+    for category in foodseg_categories:
         seg_color[(seg_result == category['id']).all(-1)] = category['color']
     
     return seg_color
@@ -44,45 +41,98 @@ def FoodNhands_Client(host : str, port : int, image, encoding):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cliente de food_n_hands")
-    parser.add_argument("-i", "--path_to_image", required = True, help = "Path/a/imagen que se envía a analizar")
+    parser = argparse.ArgumentParser(description="Cliente de food_n_hands. Extrae un fichero log de acuerdo a la mano del usuario respecto a los flags.")
+    parser.add_argument("-i", "--input", required = True, help = "Path/a/vídeo que se envía a analizar")
     parser.add_argument("- ip1", "--ip_address1", default = "127.0.0.1", help = "IP en la que abrir el servidor de FoodSeg.")
     parser.add_argument("- p1", "--port1", default = "33334", help = "Puerto en el que abrir el servidor de FoodSeg.")
     parser.add_argument("- ip2", "--ip_address2", default = "127.0.0.1", help = "IP en la que abrir el servidor de EgoHOS.")
     parser.add_argument("- p2", "--port2", default = "33333", help = "Puerto en el que abrir el servidor de EgoHOS.")
     args = parser.parse_args()
-    
 
     FoodSegHOST, FoodSegPORT = args.ip_address1, int(args.port1)
     EgoHOS_HOST, EgoHOS_PORT = args.ip_address2, int(args.port2)
-    image_path = args.path_to_image
-
-    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    encoding = "BGR"
-
-    try:
-        FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, image, encoding)
-        FoodSeg_Mask_color = colorize_FoodSeg_Mask(image, FoodSeg_Mask)
-
-    except Exception as e:
-        print("Error FoodSeg: " + str(e))
-        return
-        
-    try:
-        EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, image, encoding)
-        EgoHOS_Mask_color = colorize_egoHOS_mask(image, EgoHOS_Mask)
-    except Exception as e:
-        print("Error EgoHOS: " + str(e))
-        return
+    video_path = args.input
     
 
-    masked_image_comb = image.copy()
-    masked_image_comb[FoodSeg_Mask_color > 0] = FoodSeg_Mask_color[FoodSeg_Mask_color > 0]
-    masked_image_comb[EgoHOS_Mask_color > 0] = EgoHOS_Mask_color[EgoHOS_Mask_color > 0]
-    cv2.namedWindow('Masked image combo', cv2.WINDOW_NORMAL)
-    cv2.imshow('Masked image combo',masked_image_comb)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    result_logger = logger.bind(log_file="log.log")
+    result_logger.add("log.log", rotation="10 MB")
+
+    cap = cv2.VideoCapture(video_path)
+    encoding = "BGR"
+
+    if not cap.isOpened():
+        result_logger.Error("Unable to open video file.")
+        return
+
+    frame_number = 1
+    ret, frame = cap.read()
+    if not ret:
+        return
+    
+    # Get the frame size
+    frame_height, frame_width, _ = frame.shape
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    out = cv2.VideoWriter('D:\\wrobles\\resultados\\output_video.avi', fourcc, fps, (frame_width, frame_height))
+    result_logger.info(f"\nVideo path: {video_path}. Fps del vídeo: {fps}. Shape: ({frame_width}, {frame_height})")
+
+    while True:
+        frame_number += 1
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if not frame_number % 2 == 0:
+            continue
+
+        try:
+            FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, frame, encoding)
+            FoodSeg_Mask_color = colorize_FoodSeg_Mask(frame, FoodSeg_Mask)
+
+        except Exception as e:
+            result_logger.Error("FoodSeg: " + str(e))
+            return
+            
+        try:
+            EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, frame, encoding)
+            EgoHOS_Mask_color = colorize_egoHOS_mask(frame, EgoHOS_Mask)
+        except Exception as e:
+            result_logger.Error("EgoHOS: " + str(e))
+            return
+        
+        foodtags = np.unique(FoodSeg_Mask)
+        ingredients_log = f"\nIn frame {frame_number} we find:\n"
+        for index, tag in enumerate(foodtags):
+            if index == 0:
+                continue
+            ingredients_log += f'{foodseg_categories[tag]["tag"]} --- '
+
+        hand_log = "\n"
+        if (np.any(EgoHOS_Mask == 1)):
+            hand_log += f'Left hand is FOUND'
+        else:
+            hand_log += f'Left hand is NOT FOUND'
+        
+        object_log = "\n"
+        if (np.any(EgoHOS_Mask == 3)):
+            object_log += f'Left hand object is FOUND'
+        else:
+            object_log += f'Left hand object is NOT FOUND'
+
+        frame_log = ingredients_log + hand_log + object_log
+        result_logger.info(frame_log)
+
+        masked_image_comb = frame.copy()
+        masked_image_comb[FoodSeg_Mask_color > 0] = FoodSeg_Mask_color[FoodSeg_Mask_color > 0]
+        masked_image_comb[EgoHOS_Mask_color > 0] = EgoHOS_Mask_color[EgoHOS_Mask_color > 0]
+
+        try:
+            out.write(masked_image_comb)
+        
+        except Exception as e:
+            result_logger.error(f'{str(e)}')
+            return
+
 
 
 if __name__ == "__main__":
