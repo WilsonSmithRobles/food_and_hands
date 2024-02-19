@@ -13,12 +13,46 @@ def colorize_egoHOS_mask(img, seg_result):
     
     return seg_color
 
-def colorize_FoodSeg_Mask(img, seg_result, alpha = 0.4):
+def analyze_egoHOS_mask(EgoHOS_Mask, right_hand : bool, left_hand : bool):
+    egoHOS_log = "\n"
+    if left_hand:
+        if (np.any(EgoHOS_Mask == 1)):
+            egoHOS_log += f'Left hand is FOUND'
+        else:
+            egoHOS_log += f'Left hand is NOT FOUND'
+        if (np.any(EgoHOS_Mask == 3)):
+            egoHOS_log += f'Left hand object is FOUND'
+        else:
+            egoHOS_log += f'Left hand object is NOT FOUND'
+    
+    egoHOS_log += "\n"
+    if right_hand:
+        if (np.any(EgoHOS_Mask == 2)):
+            egoHOS_log += f'Right hand is FOUND'
+        else:
+            egoHOS_log += f'Right hand is NOT FOUND'
+        if (np.any(EgoHOS_Mask == 4)):
+            egoHOS_log += f'Right hand object is FOUND'
+        else:
+            egoHOS_log += f'Right hand object is NOT FOUND'
+    
+
+def colorize_FoodSeg_Mask(img, seg_result):
     seg_color = np.zeros(img.shape, dtype=np.uint8)
     for category in foodseg_categories:
         seg_color[(seg_result == category['id']).all(-1)] = category['color']
     
     return seg_color
+
+def analyze_FoodSeg_mask(FoodSeg_Mask):
+    foodtags = np.unique(FoodSeg_Mask)
+    ingredients_log = f""
+    for index, tag in enumerate(foodtags):
+        if index == 0:
+            continue
+        ingredients_log += f'{foodseg_categories[tag]["tag"]} --- '
+
+    return ingredients_log
 
 
 def FoodNhands_Client(host : str, port : int, image, encoding):
@@ -47,12 +81,22 @@ def main():
     parser.add_argument("- p1", "--port1", default = "33334", help = "Puerto en el que abrir el servidor de FoodSeg.")
     parser.add_argument("- ip2", "--ip_address2", default = "127.0.0.1", help = "IP en la que abrir el servidor de EgoHOS.")
     parser.add_argument("- p2", "--port2", default = "33333", help = "Puerto en el que abrir el servidor de EgoHOS.")
+    parser.add_argument("--right", help = "Flag para señalar que el usuario es diestro.")
+    parser.add_argument("--left", help = "Flag para señalar que el usuario es zurdo.")
     args = parser.parse_args()
 
     FoodSegHOST, FoodSegPORT = args.ip_address1, int(args.port1)
     EgoHOS_HOST, EgoHOS_PORT = args.ip_address2, int(args.port2)
     video_path = args.input
-    
+    left, right = False, False
+    if args.right:
+        right = True
+    if args.left:
+        left = True
+
+    if right or left:
+        logger.error("Por favor, establezca si el usuario es al menos diestro o zurdo.")
+        return
 
     result_logger = logger.bind(log_file="log.log")
     result_logger.add("log.log", rotation="10 MB")
@@ -100,26 +144,11 @@ def main():
             result_logger.Error("EgoHOS: " + str(e))
             return
         
-        foodtags = np.unique(FoodSeg_Mask)
-        ingredients_log = f"\nIn frame {frame_number} we find:\n"
-        for index, tag in enumerate(foodtags):
-            if index == 0:
-                continue
-            ingredients_log += f'{foodseg_categories[tag]["tag"]} --- '
+        frame_log = f"\nIn frame {frame_number} we find:\n"
+        ingredients_log = analyze_FoodSeg_mask(FoodSeg_Mask)
+        egoHOS_log = analyze_egoHOS_mask(EgoHOS_Mask)
 
-        hand_log = "\n"
-        if (np.any(EgoHOS_Mask == 1)):
-            hand_log += f'Left hand is FOUND'
-        else:
-            hand_log += f'Left hand is NOT FOUND'
-        
-        object_log = "\n"
-        if (np.any(EgoHOS_Mask == 3)):
-            object_log += f'Left hand object is FOUND'
-        else:
-            object_log += f'Left hand object is NOT FOUND'
-
-        frame_log = ingredients_log + hand_log + object_log
+        frame_log += ingredients_log + egoHOS_log
         result_logger.info(frame_log)
 
         masked_image_comb = frame.copy()
