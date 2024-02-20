@@ -2,6 +2,7 @@ import struct
 import socket
 import numpy as np
 import sys
+from threading import Thread
 
 def receive_image_metadata(conn):
     # Receive metadata
@@ -50,3 +51,40 @@ def send_image_metadata(client_socket : socket, image, rows, cols, encoding):
 
     # Send metadata
     client_socket.sendall(metadata)
+
+
+def FoodNhands_Client(host : str, port : int, image, encoding):
+    HOST, PORT = host, port
+
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((HOST, PORT))
+
+        rows, cols, _ = image.shape
+        send_image_metadata(client_socket, image, rows, cols, encoding = encoding)
+        client_socket.sendall(image.tobytes())
+
+        rows, cols, encoding, data_length = receive_image_metadata(client_socket)
+        image_received = receive_image_data(client_socket, data_length, rows, cols, encoding)
+    except:
+        image_received = None
+
+    finally:
+        client_socket.close()
+    
+    return image_received
+
+
+class ThreadWithReturnValue(Thread):
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs={}, Verbose=None):
+        Thread.__init__(self, group, target, name, args, kwargs)
+        self._return = None
+
+    def run(self):
+        if self._target is not None:
+            self._return = self._target(*self._args,
+                                                **self._kwargs)
+    def join(self, *args):
+        Thread.join(self, *args)
+        return self._return

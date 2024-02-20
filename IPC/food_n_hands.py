@@ -1,84 +1,12 @@
-import socket
-import client_protocols
 import cv2
 import argparse
 import numpy as np
 from loguru import logger
-from defs import foodseg_categories, hands_categories
 
-def colorize_egoHOS_mask(img, seg_result):
-    seg_color = np.zeros(img.shape, dtype=np.uint8)
-    for category in hands_categories:
-        seg_color[(seg_result == category['id']).all(-1)] = category['color']
-    
-    return seg_color
+from FoodSegUtils import analyze_FoodSeg_mask, colorize_FoodSeg_Mask
+from EgoHOS_Utils import analyze_egoHOS_mask, colorize_egoHOS_mask
+from client_protocols import FoodNhands_Client, ThreadWithReturnValue
 
-def analyze_egoHOS_mask(EgoHOS_Mask, right_hand : bool, left_hand : bool):
-    egoHOS_log = ""
-    if left_hand:
-        egoHOS_log += "\n"
-        if (np.any(EgoHOS_Mask == 1)):
-            egoHOS_log += f'Left hand is FOUND'
-        else:
-            egoHOS_log += f'Left hand is NOT FOUND'
-            
-        egoHOS_log += "\n"
-        if (np.any(EgoHOS_Mask == 3)):
-            egoHOS_log += f'Left hand object is FOUND'
-        else:
-            egoHOS_log += f'Left hand object is NOT FOUND'
-    
-    if right_hand:
-        egoHOS_log += "\n"
-        if (np.any(EgoHOS_Mask == 2)):
-            egoHOS_log += f'Right hand is FOUND'
-        else:
-            egoHOS_log += f'Right hand is NOT FOUND'
-
-        egoHOS_log += "\n"
-        if (np.any(EgoHOS_Mask == 4)):
-            egoHOS_log += f'Right hand object is FOUND'
-        else:
-            egoHOS_log += f'Right hand object is NOT FOUND'
-
-    return egoHOS_log
-    
-
-def colorize_FoodSeg_Mask(img, seg_result):
-    seg_color = np.zeros(img.shape, dtype=np.uint8)
-    for category in foodseg_categories:
-        seg_color[(seg_result == category['id']).all(-1)] = category['color']
-    
-    return seg_color
-
-def analyze_FoodSeg_mask(FoodSeg_Mask):
-    foodtags = np.unique(FoodSeg_Mask)
-    ingredients_log = f""
-    for index, tag in enumerate(foodtags):
-        if index == 0:
-            continue
-        ingredients_log += f'{foodseg_categories[tag]["tag"]} --- '
-
-    return ingredients_log
-
-
-def FoodNhands_Client(host : str, port : int, image, encoding):
-    HOST, PORT = host, port
-
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((HOST, PORT))
-    print(f"Connected to {HOST}:{PORT}")
-
-    rows, cols, _ = image.shape
-    client_protocols.send_image_metadata(client_socket, image, rows, cols, encoding = encoding)
-    client_socket.sendall(image.tobytes())
-
-    rows, cols, encoding, data_length = client_protocols.receive_image_metadata(client_socket)
-    image_received = client_protocols.receive_image_data(client_socket, data_length, rows, cols, encoding)
-
-    client_socket.close()
-    
-    return image_received
 
 
 def main():
@@ -136,19 +64,40 @@ def main():
         if not frame_number % 2 == 0:
             continue
 
+        # try:
+        #     FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, frame, encoding)
+        #     FoodSeg_Mask_color = colorize_FoodSeg_Mask(frame, FoodSeg_Mask)
+
+        # except Exception as e:
+        #     result_logger.Error("FoodSeg: " + str(e))
+        #     return
+            
+        # try:
+        #     EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, frame, encoding)
+        #     EgoHOS_Mask_color = colorize_egoHOS_mask(frame, EgoHOS_Mask)
+        # except Exception as e:
+        #     result_logger.Error("EgoHOS: " + str(e))
+        #     return
+
+        FoodSeg_Thread = ThreadWithReturnValue(target=FoodNhands_Client, args=(FoodSegHOST, FoodSegPORT, frame, encoding,))
+        EgoHOS_Thread = ThreadWithReturnValue(target=FoodNhands_Client, args=(EgoHOS_HOST, EgoHOS_PORT, frame, encoding,))
+
+        EgoHOS_Thread.start()
+        FoodSeg_Thread.start()
+
+        FoodSeg_Mask = FoodSeg_Thread.join()
+        EgoHOS_Mask = EgoHOS_Thread.join()
+
+        if FoodSeg_Mask is None or EgoHOS_Mask is None:
+            logger.error("Error at masks retrieval.")
+            return
+
         try:
-            FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, frame, encoding)
             FoodSeg_Mask_color = colorize_FoodSeg_Mask(frame, FoodSeg_Mask)
+            EgoHOS_Mask_color = colorize_egoHOS_mask(frame, EgoHOS_Mask)
 
         except Exception as e:
-            result_logger.Error("FoodSeg: " + str(e))
-            return
-            
-        try:
-            EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, frame, encoding)
-            EgoHOS_Mask_color = colorize_egoHOS_mask(frame, EgoHOS_Mask)
-        except Exception as e:
-            result_logger.Error("EgoHOS: " + str(e))
+            logger.error(f"Error at colirizing masks: {str(e)}")
             return
         
         frame_log = f"\nIn frame {frame_number} we find:"
