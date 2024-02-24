@@ -1,5 +1,7 @@
 import cv2
 import argparse
+import os
+import cv2
 import numpy as np
 from loguru import logger
 
@@ -8,33 +10,19 @@ from EgoHOS_Utils import analyze_egoHOS_mask, colorize_egoHOS_mask
 from client_protocols import FoodNhands_Client, ThreadWithReturnValue
 
 
+def create_directory(parent_dir : str, dir_name : str):
+    directory_path = os.path.join(parent_dir, dir_name)
+    os.makedirs(directory_path, exist_ok=True)
+    return directory_path
 
-def main():
-    parser = argparse.ArgumentParser(description="Cliente de food_n_hands. Extrae un fichero log de acuerdo a la mano del usuario respecto a los flags.")
-    parser.add_argument("-i", "--input", required = True, help = "Path/a/vídeo que se envía a analizar")
-    parser.add_argument("- ip1", "--ip_address1", default = "127.0.0.1", help = "IP en la que abrir el servidor de FoodSeg.")
-    parser.add_argument("- p1", "--port1", default = "33334", help = "Puerto en el que abrir el servidor de FoodSeg.")
-    parser.add_argument("- ip2", "--ip_address2", default = "127.0.0.1", help = "IP en la que abrir el servidor de EgoHOS.")
-    parser.add_argument("- p2", "--port2", default = "33333", help = "Puerto en el que abrir el servidor de EgoHOS.")
-    parser.add_argument("--right", action="store_true", help = "Flag para señalar que el usuario es diestro.")
-    parser.add_argument("--left", action="store_true", help = "Flag para señalar que el usuario es zurdo.")
-    args = parser.parse_args()
 
-    FoodSegHOST, FoodSegPORT = args.ip_address1, int(args.port1)
-    EgoHOS_HOST, EgoHOS_PORT = args.ip_address2, int(args.port2)
-    video_path = args.input
-    left, right = False, False
-    if args.right:
-        right = True
-    if args.left:
-        left = True
+def food_n_hands(FoodSegHOST : str, FoodSegPORT : int, EgoHOS_HOST : str, EgoHOS_PORT : int, video_path : str, left : bool, right : bool, output_dir : str):
+    egohos_masks_dir = create_directory(output_dir, "EgoHOS_Masks")
+    foodseg_masks_dir = create_directory(output_dir, "FoodSeg_Masks")
+    original_imgs_dir = create_directory(output_dir, "Original_Images")
 
-    if not (right or left):
-        logger.error("Por favor, establezca si el usuario es al menos diestro o zurdo.")
-        return
-
-    result_logger = logger.bind(log_file="log.log")
-    result_logger.add("log.log", rotation="10 MB")
+    result_logger = logger.bind(application="food_and_hands")
+    result_logger.add(sink=os.path.join(output_dir, "log.log"), rotation="10 MB")
 
     cap = cv2.VideoCapture(video_path)
     encoding = "BGR"
@@ -48,11 +36,10 @@ def main():
     if not ret:
         return
     
-    # Get the frame size
     frame_height, frame_width, _ = frame.shape
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     fps = cap.get(cv2.CAP_PROP_FPS)
-    out = cv2.VideoWriter('D:\\wrobles\\resultados\\output_video.avi', fourcc, fps, (frame_width, frame_height))
+    out = cv2.VideoWriter(os.path.join(output_dir, "output_video.avi"), fourcc, fps, (frame_width, frame_height))
     result_logger.info(f"\nVideo path: {video_path}. Fps del vídeo: {fps}. Shape: ({frame_width}, {frame_height})")
 
     while True:
@@ -64,24 +51,10 @@ def main():
         if not frame_number % 2 == 0:
             continue
 
-        # try:
-        #     FoodSeg_Mask = FoodNhands_Client(FoodSegHOST, FoodSegPORT, frame, encoding)
-        #     FoodSeg_Mask_color = colorize_FoodSeg_Mask(frame, FoodSeg_Mask)
-
-        # except Exception as e:
-        #     result_logger.Error("FoodSeg: " + str(e))
-        #     return
-            
-        # try:
-        #     EgoHOS_Mask = FoodNhands_Client(EgoHOS_HOST, EgoHOS_PORT, frame, encoding)
-        #     EgoHOS_Mask_color = colorize_egoHOS_mask(frame, EgoHOS_Mask)
-        # except Exception as e:
-        #     result_logger.Error("EgoHOS: " + str(e))
-        #     return
+        cv2.imwrite(os.path.join(original_imgs_dir, f"{frame_number/2}.png"), frame)
 
         FoodSeg_Thread = ThreadWithReturnValue(target=FoodNhands_Client, args=(FoodSegHOST, FoodSegPORT, frame, encoding,))
         EgoHOS_Thread = ThreadWithReturnValue(target=FoodNhands_Client, args=(EgoHOS_HOST, EgoHOS_PORT, frame, encoding,))
-
         EgoHOS_Thread.start()
         FoodSeg_Thread.start()
 
@@ -91,6 +64,9 @@ def main():
         if FoodSeg_Mask is None or EgoHOS_Mask is None:
             logger.error("Error at masks retrieval.")
             return
+        
+        cv2.imwrite(os.path.join(foodseg_masks_dir, f"{frame_number/2}.png"), FoodSeg_Mask)
+        cv2.imwrite(os.path.join(egohos_masks_dir, f"{frame_number/2}.png"), EgoHOS_Mask)
 
         try:
             FoodSeg_Mask_color = colorize_FoodSeg_Mask(frame, FoodSeg_Mask)
@@ -117,6 +93,37 @@ def main():
         except Exception as e:
             result_logger.error(f'{str(e)}')
             return
+
+def main():
+    parser = argparse.ArgumentParser(description="Cliente de food_n_hands. Extrae un fichero log de acuerdo a la mano del usuario respecto a los flags.")
+    parser.add_argument("-i", "--input", required = True, help = "Path/a/vídeo que se envía a analizar")
+    parser.add_argument("- ip1", "--ip_address1", default = "127.0.0.1", help = "IP en la que abrir el servidor de FoodSeg.")
+    parser.add_argument("- p1", "--port1", default = "33334", help = "Puerto en el que abrir el servidor de FoodSeg.")
+    parser.add_argument("- ip2", "--ip_address2", default = "127.0.0.1", help = "IP en la que abrir el servidor de EgoHOS.")
+    parser.add_argument("- p2", "--port2", default = "33333", help = "Puerto en el que abrir el servidor de EgoHOS.")
+    parser.add_argument("--right", action="store_true", help = "Flag para señalar que el usuario es diestro.")
+    parser.add_argument("--left", action="store_true", help = "Flag para señalar que el usuario es zurdo.")
+    parser.add_argument("-o","--output_dir", required=True, help = "Directorio donde almacenar log, mascaras e imágenes originales. Preferiblemente vacío para no sobreescribirlo")
+    args = parser.parse_args()
+
+    FoodSegHOST, FoodSegPORT = args.ip_address1, int(args.port1)
+    EgoHOS_HOST, EgoHOS_PORT = args.ip_address2, int(args.port2)
+    video_path = args.input
+    left, right = False, False
+    if args.right:
+        right = True
+    if args.left:
+        left = True
+    if not (right or left):
+        logger.error("Por favor, establezca si el usuario es al menos diestro o zurdo.")
+        return
+    
+    output_dir = args.output_dir
+    if not os.path.exists(output_dir):
+        logger.error("Directorio de salida no existe. Por favor, señala un directorio válido.")
+        return
+    
+    food_n_hands(FoodSegHOST, FoodSegPORT, EgoHOS_HOST, EgoHOS_PORT, video_path, left, right, output_dir)
 
 
 
