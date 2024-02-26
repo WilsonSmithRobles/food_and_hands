@@ -82,7 +82,7 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
     if fps == 0:
         logger.error("Invalid fps count at the log file.")
         return 1
-    msecs_frame = 1000 / fps    # No ·2 porque las máscaras se guardan con el número de frame
+    msecs_frame = 2 * 1000 / fps    # · 2 porque las máscaras se guardan skipeando un frame (doblando el tiempo)
 
 
     mask_files = os.listdir(masks_dir)
@@ -90,7 +90,11 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
     mask_pngs.sort(key=lambda x: int(x.split(".")[0]))
     
 
-    bocado_frames_timeout = 500 / msecs_frame  # 500ms de timeout
+    result_logger = logger.bind(application="food_and_hands_post_process")
+    result_logger.add(sink=output_log, rotation="10 MB")
+    
+
+    bocado_frames_timeout = 1000 / msecs_frame  # 1s de timeout para contar otro bocado si se dan las condiciones
     logger.info(f"bocado frames: {bocado_frames_timeout}")
     ultimo_bocado = 0
     bocado_count = 0
@@ -108,11 +112,9 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
         if bottom_hand_width > 0.95 * hand_width:   # Bocado detectado
             if frame_number - ultimo_bocado > bocado_frames_timeout:    # Cuantificar solo si hace rato que se cuantifica uno.
                 bocado_count += 1
-                logger.info(f"Bocado detectado en frame {frame_number}")
+                result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
             ultimo_bocado = frame_number
 
-    result_logger = logger.bind(application="food_and_hands_post_process")
-    result_logger.add(sink=output_log, rotation="10 MB")
     result_logger.info(f"Cuenta de cucharadas: {bocado_count}")
     
     return 0
