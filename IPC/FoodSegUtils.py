@@ -1,5 +1,5 @@
 import numpy as np
-from defs import foodseg_categories
+from .defs import foodseg_categories
 
 def colorize_FoodSeg_Mask(img, seg_result):
     seg_color = np.zeros(img.shape, dtype=np.uint8)
@@ -16,4 +16,4 @@ def analyze_FoodSeg_mask(FoodSeg_Mask):
             continue
         ingredients_log += f'{foodseg_categories[tag]["tag"]} --- '
 
-    return ingredients_log
+    return ingredients_log, foodtags
