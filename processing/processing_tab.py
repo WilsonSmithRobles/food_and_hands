@@ -61,6 +61,8 @@ class ProcessingTab(QWidget):
         # Barra de progreso del análisis
         self.analysis_progress_bar = QProgressBar()
         self.analysis_progress_bar.setAlignment(Qt.AlignCenter)
+        self.analysis_progress_bar.setMaximum(100)
+        self.analysis_progress_bar.setMinimum(0)
         processing_layout.addWidget(self.analysis_progress_bar)
 
         # Layout para botones de selección de vídeo + botón de análisis
@@ -155,6 +157,11 @@ class ProcessingTab(QWidget):
             ErrorDialog("Error: Unable to read frames from video.")
             return
         
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        percent_analyzed = 0
+        self.analysis_progress_bar.setValue(percent_analyzed)
+        percent_increase_per_frame = 100 / total_frames
+        
         if not os.path.exists(out_dir):
             ErrorDialog("Error: Carpeta seleccionada no existe")
             return
@@ -183,6 +190,9 @@ class ProcessingTab(QWidget):
 
             if not frame_number % 2 == 0:
                 continue
+
+            percent_analyzed = frame_number * percent_increase_per_frame
+            self.analysis_progress_bar.setValue(percent_analyzed)
 
             cv2.imwrite(os.path.join(original_imgs_dir, f"{frame_number/2}.png"), frame)
             FoodSegHOST = "127.0.0.1"
