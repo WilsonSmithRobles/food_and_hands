@@ -7,7 +7,7 @@ from threading import Thread
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog, QTableWidget, QTableWidgetItem
 from PySide6.QtGui import QPixmap, QImage, QColor
 from PySide6.QtCore import Qt
-from .error_dialog import ErrorDialog
+from .custom_widgets.error_dialog import ErrorDialog
 
 
 from IPC.FoodSegUtils import analyze_FoodSeg_mask, colorize_FoodSeg_Mask

@@ -7,26 +7,30 @@ from threading import Thread
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog
 from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal, Slot
 
 from .bocados import (extract_fps_from_log, 
                       remove_values_not_equal, 
                       convert_non_zero_to_255,
                       convert_values_above_5_percent_to_0,
                       compute_mask_width)
+from .custom_widgets.heatmap_widget import HeatmapWidget
+from .custom_widgets.error_dialog import ErrorDialog
 
 class HeatmapTab(QWidget):
+    progress_bar_update = Signal(float)
+
     def __init__(self):
         super().__init__()
         self.selected_dir = ""
+        self.progress_bar_update[float].connect(self.update_progress_bar)
         self.initUI()
 
     def initUI(self):
         heatmap_layout = QVBoxLayout()
 
-        self.heatmap_label = QLabel()
-        self.heatmap_label.setAlignment(Qt.AlignCenter)
-        heatmap_layout.addWidget(self.heatmap_label) 
+        self.heatmap = HeatmapWidget(self)
+        heatmap_layout.addWidget(self.heatmap) 
 
         self.heatmap_progress_bar = QProgressBar()
         self.heatmap_progress_bar.setAlignment(Qt.AlignCenter)
@@ -50,19 +54,24 @@ class HeatmapTab(QWidget):
         post_process_button.clicked.connect(self.post_process_button)
         
 
+    @Slot(float)
+    def update_progress_bar(self, progress):
+        self.heatmap_progress_bar.setValue(progress)
+
+
     def select_folder(self):
         self.post_process_dir_label.setText("No directory selected")
         self.selected_dir = ""
         file = str(QFileDialog.getExistingDirectory(self, "Select directory (process output)"))
         if file:
             if not os.path.exists(os.path.join(file, "log.log")):
-                logger.error("Log file does not exist.")
+                ErrorDialog("Log file does not exist.")
                 return
             if not os.path.exists(os.path.join(file, "EgoHOS_Masks/")):
-                logger.error("EgoHOS masks folder does not exist.")
+                ErrorDialog("EgoHOS masks folder does not exist.")
                 return
             if not os.path.exists(os.path.join(file, "FoodSeg_Masks/")):
-                logger.error("FoodSeg masks folder does not exist.")
+                ErrorDialog("FoodSeg masks folder does not exist.")
                 return
             self.post_process_dir_label.setText(file)
             self.selected_dir = file
@@ -72,22 +81,36 @@ class HeatmapTab(QWidget):
         thread = Thread(target=self.post_process)
         thread.start()
 
-    
     def post_process(self):
-        if(self.selected_dir == ""):
-            logger.error("Invalid directory for post processing")
+        hand_tag = 2
+        if not os.path.exists(self.selected_dir):
+            ErrorDialog("Invalid directory for post processing")
+            return
+        
+        if not os.path.exists(os.path.join(self.selected_dir, "log.log")):
+            ErrorDialog("Log file does not exist.")
+            return
+        log_file = os.path.join(self.selected_dir, "log.log")
+        
+        if not os.path.exists(os.path.join(self.selected_dir, "EgoHOS_Masks/")):
+            ErrorDialog("EgoHOS masks folder does not exist.")
+            return
+        masks_dir = os.path.join(self.selected_dir, "EgoHOS_Masks")
+
+        if not os.path.exists(os.path.join(self.selected_dir, "FoodSeg_Masks/")):
+            ErrorDialog("FoodSeg masks folder does not exist.")
             return
 
-        masks_dir = os.path.join(self.selected_dir, "EgoHOS_Masks")
-        log_file = os.path.join(self.selected_dir, "log.log")
-        hand_tag = 2
 
         # Primero revisar si se puede extraer los fps
         fps = extract_fps_from_log(log_file)
         if fps == None:
-            logger.error("Invalid fps count at the log file.")
+            ErrorDialog("Invalid fps count at the log file.")
             return
         msecs_frame = 2 * 1000 / fps    # · 2 porque las máscaras se guardan skipeando un frame (doblando el tiempo)
+
+        result_logger = logger.bind(application="food_and_hands_post_process")
+        result_logger.add(sink=os.path.join(self.selected_dir, "post_process.log"), rotation="10 MB")
 
         height = 108
         width = 192
@@ -105,13 +128,14 @@ class HeatmapTab(QWidget):
         percent_increase_per_frame = 100 / len(mask_pngs)
 
         bocado_frames_timeout = 1000 / msecs_frame  # 1s de timeout para contar otro bocado si se dan las condiciones
-        logger.info(f"bocado frames: {bocado_frames_timeout}")
+        result_logger.info(f"bocado frames: {bocado_frames_timeout}")
         ultimo_bocado = 0
         bocado_count = 0
         for mask_filename in mask_pngs:
             frame_number = int(mask_filename.split(".")[0])
             percent_analyzed = percent_increase_per_frame * frame_number
-            self.heatmap_progress_bar.setValue(percent_analyzed)
+            # self.heatmap_progress_bar.setValue(percent_analyzed)
+            self.progress_bar_update.emit(percent_analyzed)
 
             EgoHOS_Mask = cv2.imread(os.path.join(masks_dir, mask_filename), cv2.IMREAD_GRAYSCALE)
             
@@ -125,7 +149,7 @@ class HeatmapTab(QWidget):
             if bottom_hand_width > 0.95 * hand_width:   # Bocado detectado
                 if frame_number - ultimo_bocado > bocado_frames_timeout:    # Cuantificar solo si hace rato que se cuantifica uno.
                     bocado_count += 1
-                    logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
+                    result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
                 ultimo_bocado = frame_number
 
 
@@ -139,20 +163,9 @@ class HeatmapTab(QWidget):
                     if np.any(superpixel_region == 255):
                         # If any 255 value is found, set the count to 1
                         grid_hand_count[i, j] += 1
-            
-        # Create the heatmap using imshow
-        plt.imshow(grid_hand_count, cmap='hot', interpolation='nearest')
+        
+        cv2.imwrite(os.path.join(self.selected_dir, "heatmap.jpg"), grid_hand_count)
         values_gotten = np.unique(grid_hand_count)
-        logger.info(f"Values gotten: {values_gotten}")
-        # Add color bar to indicate the value range
-        plt.colorbar()
-
-        # Add labels and title
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.title('Heatmap of 1s Count in Superpixels')
-
-        # Show the plot
-        plt.show()
-
-        logger.info(f"Cuenta de cucharadas: {bocado_count}")
+        result_logger.info(f"Valores obtenidos: {values_gotten}")
+        result_logger.info(f"Cuenta de cucharadas: {bocado_count}")
+        self.heatmap.plot(grid_hand_count)
