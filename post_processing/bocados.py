@@ -24,13 +24,6 @@ def convert_non_zero_to_255(image):
     image[mask] = 255
     return image
 
-# def compute_mask_width(mask):
-#     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-#     largest_contour = max(contours, key=cv2.contourArea)
-#     x, y, w, h = cv2.boundingRect(largest_contour)
-#     max_width = w
-#     return max_width
-
 def compute_mask_width(mask):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     max_left = float('inf')
@@ -48,8 +41,9 @@ def convert_values_above_5_percent_to_0(image):
     height, _ = image.shape
     threshold_height = int(0.95 * height)
     mask = np.arange(height) < threshold_height
-    image[mask, :] = 0
-    return image
+    image_copy = image.copy()
+    image_copy[mask, :] = 0
+    return image_copy
 
 
 
@@ -79,7 +73,7 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
         return 1
     fps = extract_fps_from_log(log_file)
     logger.info(f"FPS: {fps}")
-    if fps == 0:
+    if fps == None:
         logger.error("Invalid fps count at the log file.")
         return 1
     msecs_frame = 2 * 1000 / fps    # · 2 porque las máscaras se guardan skipeando un frame (doblando el tiempo)

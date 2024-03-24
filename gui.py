@@ -21,7 +21,7 @@ class MyWindow(QMainWindow):
         show_processing_tab.triggered.connect(self.show_processing)
         toolbar.addAction(show_processing_tab)
 
-        show_heatmap_tab = QAction("Show Right Side", self)
+        show_heatmap_tab = QAction("Show PostProcessing Tab", self)
         show_heatmap_tab.triggered.connect(self.show_heatmap)
         toolbar.addAction(show_heatmap_tab)
 

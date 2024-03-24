@@ -98,6 +98,8 @@ class ProcessingTab(QWidget):
 
     def select_video(self):
         file_filter = 'Video Files (*.mp4 *.avi *.mkv)'
+        self.video_path_label.setText("No video selected")
+        self.selected_video = ""
         response, _ = QFileDialog.getOpenFileName(
             parent=self,
             caption='Select a video file',
@@ -107,19 +109,15 @@ class ProcessingTab(QWidget):
         if response:
             self.video_path_label.setText(response)
             self.selected_video = response
-        else:
-            self.video_path_label.setText("No video selected")
-            self.selected_video = ""
 
 
     def select_folder(self):
         file = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        self.output_dir_label.setText("No output dir selected")
+        self.selected_output_dir = ""
         if file:
             self.output_dir_label.setText(file)
             self.selected_output_dir = file
-        else:
-            self.output_dir_label.setText("No output dir selected")
-            self.selected_output_dir = ""
 
 
     def stop_analysis(self):
