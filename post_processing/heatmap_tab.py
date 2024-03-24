@@ -87,6 +87,13 @@ class HeatmapTab(QWidget):
             ErrorDialog("Invalid directory for post processing")
             return
         
+        if (os.path.exists(os.path.join(self.selected_dir, "post_process.log")) 
+            and os.path.exists(os.path.join(self.selected_dir, "heatmap.jpg"))):
+            saved_image = cv2.imread(os.path.join(self.selected_dir, "heatmap.jpg"), cv2.IMREAD_GRAYSCALE)
+            grid_hand_count = saved_image.astype(np.int64)
+            self.heatmap.plot(grid_hand_count)
+            return
+        
         if not os.path.exists(os.path.join(self.selected_dir, "log.log")):
             ErrorDialog("Log file does not exist.")
             return
