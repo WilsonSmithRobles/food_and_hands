@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from threading import Thread
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog
-from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog, QMenu
 from PySide6.QtCore import Qt, Signal, Slot
 
 from .bocados import (extract_fps_from_log, 
@@ -23,6 +22,7 @@ class HeatmapTab(QWidget):
     def __init__(self):
         super().__init__()
         self.selected_dir = ""
+        self.right_handed = True
         self.progress_bar_update[float].connect(self.update_progress_bar)
         self.initUI()
 
@@ -40,8 +40,19 @@ class HeatmapTab(QWidget):
         self.post_process_dir_label = QLabel("No directory selected")
         select_button = QPushButton("Select directory (process output)")
         post_process_button = QPushButton("Post Process!")
+
+        # Elegir zurdo o diestro
+        self.dropdown_button = QPushButton('Right hand', self)
+        menu = QMenu(self)
+        right_hand_action = menu.addAction('Right handed')
+        left_hand_action = menu.addAction('Left handed')
+        right_hand_action.triggered.connect(self.right_hand_selected)
+        left_hand_action.triggered.connect(self.left_hand_selected)
+        self.dropdown_button.setMenu(menu)
+
         post_process_button_layout.addWidget(self.post_process_dir_label)
         post_process_button_layout.addWidget(select_button)
+        post_process_button_layout.addWidget(self.dropdown_button)
         post_process_button_layout.addWidget(post_process_button)
         heatmap_layout.addLayout(post_process_button_layout)
 
@@ -58,6 +69,13 @@ class HeatmapTab(QWidget):
     def update_progress_bar(self, progress):
         self.heatmap_progress_bar.setValue(progress)
 
+    def right_hand_selected(self):
+        self.right_handed = True
+        self.dropdown_button.setText('Right handed')
+
+    def left_hand_selected(self):
+        self.right_handed = False
+        self.dropdown_button.setText('Left handed')
 
     def select_folder(self):
         self.post_process_dir_label.setText("No directory selected")
@@ -82,7 +100,7 @@ class HeatmapTab(QWidget):
         thread.start()
 
     def post_process(self):
-        hand_tag = 2
+        hand_tag = 2 if self.right_handed else 1
         if not os.path.exists(self.selected_dir):
             ErrorDialog("Invalid directory for post processing")
             return
