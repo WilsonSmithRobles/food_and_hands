@@ -1,19 +1,12 @@
 import cv2
 import argparse
 import os
-import cv2
-import numpy as np
 from loguru import logger
 
 from FoodSegUtils import analyze_FoodSeg_mask, colorize_FoodSeg_Mask
 from EgoHOS_Utils import analyze_egoHOS_mask, colorize_egoHOS_mask
-from client_protocols import FoodNhands_Client, ThreadWithReturnValue
-
-
-def create_directory(parent_dir : str, dir_name : str):
-    directory_path = os.path.join(parent_dir, dir_name)
-    os.makedirs(directory_path, exist_ok=True)
-    return directory_path
+from client_protocols import FoodNhands_Client
+from utils import create_directory, ThreadWithReturnValue
 
 
 def food_n_hands(FoodSegHOST : str, FoodSegPORT : int, EgoHOS_HOST : str, EgoHOS_PORT : int, video_path : str, left : bool, right : bool, output_dir : str):
@@ -77,8 +70,8 @@ def food_n_hands(FoodSegHOST : str, FoodSegPORT : int, EgoHOS_HOST : str, EgoHOS
             return
         
         frame_log = f"\nIn frame {frame_number} we find:"
-        ingredients_log = analyze_FoodSeg_mask(FoodSeg_Mask)
-        egoHOS_log = analyze_egoHOS_mask(EgoHOS_Mask, right, left)
+        ingredients_log, _ = analyze_FoodSeg_mask(FoodSeg_Mask)
+        egoHOS_log, _ = analyze_egoHOS_mask(EgoHOS_Mask, right, left)
 
         frame_log += ingredients_log + egoHOS_log
         result_logger.info(frame_log)
