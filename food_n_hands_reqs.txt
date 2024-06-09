@@ -1,0 +1,15 @@
+cycler==0.12.1
+fonttools==4.49.0
+kiwisolver==1.4.5
+loguru==0.7.2
+matplotlib==3.8.3
+numpy==1.26.2
+opencv-python==4.8.1.78
+packaging==24.0
+pillow==10.2.0
+pyparsing==3.1.2
+pyside6==6.6.2
+pyside6-addons==6.6.2
+pyside6-essentials==6.6.2
+shiboken6==6.6.2
+win32-setctime==1.1.0
