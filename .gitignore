@@ -163,5 +163,6 @@ cython_debug/
 /checkpoints/
 /mydata/
 /videos/
+*models/
 
-*defs.py
+*.pkl

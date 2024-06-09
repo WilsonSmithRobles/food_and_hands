@@ -1,4 +1,6 @@
-import cv2
+import torch
+torch.device('cpu')
+from fastai.vision.all import load_learner, Path, Image
 import numpy as np
 import os, sys
 import argparse
@@ -14,47 +16,37 @@ def extract_fps_from_log(log_file):
                 return fps
     return None
 
-def remove_values_not_equal(image, number):
-    mask = (image == number)
-    image[mask == False] = 0
-    return image
+def normalize_image(image : np.array):
+    numpy_image = np.array(image)
+    mask = ((numpy_image != 1)
+            & (numpy_image != 2)
+            & (numpy_image != 3)
+            & (numpy_image != 4)
+            & (numpy_image != 5))
+    numpy_image[mask] = 0
+    numpy_image[numpy_image == 1] = 255
+    numpy_image[numpy_image == 2] = 255
+    numpy_image[numpy_image == 3] = 128
+    numpy_image[numpy_image == 4] = 128
+    numpy_image[numpy_image == 5] = 128
+    pil_image = Image.fromarray(numpy_image.astype(np.uint8))
+    return numpy_image, pil_image
 
-def convert_non_zero_to_255(image):
-    mask = (image != 0)
-    image[mask] = 255
-    return image
-
-def compute_mask_width(mask):
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    max_left = float('inf')
-    max_right = float('-inf')
-    
-    for contour in contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        max_left = min(max_left, x)
-        max_right = max(max_right, x + w)
-    
-    max_width = max_right - max_left
-    return max_width
-
-def convert_values_above_5_percent_to_0(image):
-    height, _ = image.shape
-    threshold_height = int(0.95 * height)
-    mask = np.arange(height) < threshold_height
-    image_copy = image.copy()
-    image_copy[mask, :] = 0
-    return image_copy
+def img_tfms_inf(image_path : Path):
+    image = Image.open(image_path)
+    numpy_image, pil_image = normalize_image(image)
+    return numpy_image, pil_image.resize((256, 256), Image.NEAREST)
 
 
 
-def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log : str):
+def contar_bocados(masks_dir : str, log_file : str, output_log : str, model):
     '''Función para contar los bocados de una persona en un vídeo analizado con food_n_hands
     
     Parámetros:
         masks_dir (str): Directorio donde están las máscaras de EgoHOS
         log_file (str): Fichero de log del análisis.
-        hand_tag (int): Dependiendo de la mano que queramos usar para el análisis este tag es 1 o 2.
         output_log (str): Fichero de salida de este post procesado.
+        model (fastai model): Modelo de fastai cargado para inferencia mediante learn_load.
         
     Devuelve:
         El número de bocados según el post procesado de esta función.
@@ -67,9 +59,6 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
         return 1
     if not log_file.endswith(".log"):
         logger.error("File is not a log file.")
-        return 1
-    if hand_tag != 1 and hand_tag != 2:
-        logger.error("Invalid hand tag. Must be set to 1 or 2")
         return 1
     fps = extract_fps_from_log(log_file)
     logger.info(f"FPS: {fps}")
@@ -90,24 +79,22 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
 
     bocado_frames_timeout = 1000 / msecs_frame  # 1s de timeout para contar otro bocado si se dan las condiciones
     logger.info(f"bocado frames: {bocado_frames_timeout}")
-    ultimo_bocado = 0
+    # ultimo_bocado = 0
     bocado_count = 0
     for mask_filename in mask_pngs:
         frame_number = int(mask_filename.split(".")[0])
-        EgoHOS_Mask = cv2.imread(os.path.join(masks_dir, mask_filename), cv2.IMREAD_GRAYSCALE)
-        
-        hand_mask = remove_values_not_equal(EgoHOS_Mask, hand_tag)
-        hand_mask = convert_non_zero_to_255(hand_mask)
+        _, pil_image2analyze = img_tfms_inf(Path(os.path.join(masks_dir, mask_filename)))
+        predictions = model.predict(pil_image2analyze)
 
-        hand_width = compute_mask_width(hand_mask)
-        bottom_hand_mask = convert_values_above_5_percent_to_0(hand_mask)
-        bottom_hand_width = compute_mask_width(bottom_hand_mask)
+        if (predictions[0] == "bite"):
+            result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
+            bocado_count += 1
 
-        if bottom_hand_width > 0.95 * hand_width:   # Bocado detectado
-            if frame_number - ultimo_bocado > bocado_frames_timeout:    # Cuantificar solo si hace rato que se cuantifica uno.
-                bocado_count += 1
-                result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
-            ultimo_bocado = frame_number
+        # if bottom_hand_width > 0.95 * hand_width:   # Bocado detectado
+        #     if frame_number - ultimo_bocado > bocado_frames_timeout:    # Cuantificar solo si hace rato que se cuantifica uno.
+        #         bocado_count += 1
+        #         result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
+        #     ultimo_bocado = frame_number
 
     result_logger.info(f"Cuenta de cucharadas: {bocado_count}")
     
@@ -116,17 +103,21 @@ def contar_bocados(masks_dir : str, log_file : str, hand_tag : int, output_log :
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cliente de food_n_hands. Extrae un fichero log de acuerdo a la mano del usuario respecto a los flags.")
+    parser = argparse.ArgumentParser(description="Utilidad para el cliente de food_n_hands. Extrae un fichero log de acuerdo a la mano del usuario respecto a los flags.")
     parser.add_argument("-i", "--input", required = True, help = "Path/a/directorio que se envía a analizar")
+    parser.add_argument("-m", "--model_path", required = True, help = "Path/a/modelo fastai que se usa para analizar")
     parser.add_argument("-o", "--output", required = True, help = "Path/a/archivo_log que se va a escribir")
     args = parser.parse_args()
     
     dir_path = args.input
+    output = args.output
+    model_path = args.model_path
+    model = load_learner(Path(model_path), cpu=True)
     masks_dir = os.path.join(dir_path, "EgoHOS_Masks")
     log_file = os.path.join(dir_path, "log.log")
     logger.info(f"Masks dir: {masks_dir} && log file: {log_file}")
 
-    return contar_bocados(masks_dir, log_file, 2, args.output)
+    return contar_bocados(masks_dir, log_file, output, model=model)
 
 
 if __name__ == "__main__":

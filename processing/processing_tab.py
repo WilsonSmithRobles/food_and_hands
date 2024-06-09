@@ -1,6 +1,7 @@
 import cv2
 import os
 import numpy as np
+import json
 from loguru import logger
 from threading import Thread
 
@@ -138,7 +139,7 @@ class ProcessingTab(QWidget):
         out_dir = self.selected_output_dir
 
         # Start the task in a separate thread
-        thread = Thread(target=self.food_n_hands_gui, args=("127.0.0.1", 33334, "127.0.0.1", 33333, video_path, False, True, out_dir,))
+        thread = Thread(target=self.food_n_hands_gui, args=("127.0.0.1", 33334, "127.0.0.1", 33333, video_path, True, True, out_dir,))
         thread.start()
 
 
@@ -165,6 +166,7 @@ class ProcessingTab(QWidget):
             return
 
         self.analyzing_video = True
+        self.stop_analyzing_video = False
         output_dir = self.selected_output_dir
         
         egohos_masks_dir = create_directory(output_dir, "EgoHOS_Masks")
@@ -179,6 +181,13 @@ class ProcessingTab(QWidget):
         fps = cap.get(cv2.CAP_PROP_FPS)
         out = cv2.VideoWriter(os.path.join(output_dir, "output_video.avi"), fourcc, fps, (frame_width, frame_height))
         result_logger.info(f"\nVideo path: {video_path}. Fps del vídeo: {fps}. Shape: ({frame_width}, {frame_height})")
+
+        json_log = {
+            "video_path" : video_path,
+            "video_fps" : fps,
+            "shape" : (frame_width, frame_height),
+            "frames" : []
+        }
 
         while not self.stop_analyzing_video:
             frame_number += 1
@@ -227,6 +236,14 @@ class ProcessingTab(QWidget):
             ingredients_log, food_found = analyze_FoodSeg_mask(FoodSeg_Mask)
             egoHOS_log, egoHOS_tags_found = analyze_egoHOS_mask(EgoHOS_Mask, left_hand=left, right_hand=right)
 
+            json_frame_log = {
+                "original_frame_number" : frame_number,
+                "post_analysis_frame_number" : int(frame_number / 2),
+                "EgoHOS_tags_found" : egoHOS_tags_found.tolist(),
+                "FoodSeg_tags_found" : food_found.tolist()
+            }
+            json_log["frames"].append(json_frame_log)
+
             frame_log += ingredients_log + egoHOS_log
             result_logger.info(frame_log)
 
@@ -260,6 +277,9 @@ class ProcessingTab(QWidget):
         cap.release()
         self.stop_analyzing_video = False
         self.analyzing_video = False
+
+        with open(os.path.join(output_dir, "log.json"), "w") as json_file:
+            json.dump(json_log, json_file)
 
 
     def show_tags_in_table(self, food_tags_found, egohos_tags_found):

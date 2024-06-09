@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import cv2
+import json
+from fastai.vision.all import load_learner, Path, Image
 import matplotlib.pyplot as plt
 from loguru import logger
 from threading import Thread
@@ -8,22 +10,23 @@ from threading import Thread
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QFileDialog, QMenu
 from PySide6.QtCore import Qt, Signal, Slot
 
-from .bocados import (extract_fps_from_log, 
-                      remove_values_not_equal, 
-                      convert_non_zero_to_255,
-                      convert_values_above_5_percent_to_0,
-                      compute_mask_width)
+from .bocados import (extract_fps_from_log,
+                      img_tfms_inf)
 from .custom_widgets.heatmap_widget import HeatmapWidget
 from .custom_widgets.error_dialog import ErrorDialog
 
 class HeatmapTab(QWidget):
     progress_bar_update = Signal(float)
+    post_processing_signal = Signal(bool)
 
     def __init__(self):
         super().__init__()
         self.selected_dir = ""
-        self.right_handed = True
         self.progress_bar_update[float].connect(self.update_progress_bar)
+        self.post_processing_status = False
+        self.post_processing_signal[bool].connect(self.update_post_processing_status)
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model1.pkl")))
+        self.stop_post_processing = False
         self.initUI()
 
     def initUI(self):
@@ -41,19 +44,27 @@ class HeatmapTab(QWidget):
         select_button = QPushButton("Select directory (process output)")
         post_process_button = QPushButton("Post Process!")
 
-        # Elegir zurdo o diestro
-        self.dropdown_button = QPushButton('Right hand', self)
+        # Elegir modelo
+        self.dropdown_button = QPushButton('Model 1', self)
         menu = QMenu(self)
-        right_hand_action = menu.addAction('Right handed')
-        left_hand_action = menu.addAction('Left handed')
-        right_hand_action.triggered.connect(self.right_hand_selected)
-        left_hand_action.triggered.connect(self.left_hand_selected)
+        model1_action = menu.addAction('Model 1')
+        model2_action = menu.addAction('Model 2')
+        model3_action = menu.addAction('Model 3')
+        model4_action = menu.addAction('Model 4')
+        model5_action = menu.addAction('Model 5')
+        model1_action.triggered.connect(self.load_model1)
+        model2_action.triggered.connect(self.load_model2)
+        model3_action.triggered.connect(self.load_model3)
+        model4_action.triggered.connect(self.load_model4)
+        model5_action.triggered.connect(self.load_model5)
         self.dropdown_button.setMenu(menu)
 
         post_process_button_layout.addWidget(self.post_process_dir_label)
         post_process_button_layout.addWidget(select_button)
         post_process_button_layout.addWidget(self.dropdown_button)
         post_process_button_layout.addWidget(post_process_button)
+        stop_analysis_button = QPushButton("Stop post processing")
+        post_process_button_layout.addWidget(stop_analysis_button)
         heatmap_layout.addLayout(post_process_button_layout)
 
         # Initially, hide
@@ -62,20 +73,46 @@ class HeatmapTab(QWidget):
 
         # Conexiones con funciones
         select_button.clicked.connect(self.select_folder)
-        post_process_button.clicked.connect(self.post_process_button)
+        post_process_button.clicked.connect(self.post_process_button_sign_emit)
+        stop_analysis_button.clicked.connect(self.stop_analysis)
+
+    def load_model1(self):
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model1.pkl")))
+        self.dropdown_button.setText('Model 1')
+
+    def load_model2(self):
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model2.pkl")))
+        self.dropdown_button.setText('Model 2')
+
+    def load_model3(self):
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model3.pkl")))
+        self.dropdown_button.setText('Model 3')
+
+    def load_model4(self):
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model4.pkl")))
+        self.dropdown_button.setText('Model 4')
+
+    def load_model5(self):
+        self.model = load_learner(Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "model5.pkl")))
+        self.dropdown_button.setText('Model 5')
+
+        
+    def stop_analysis(self):
+        if not self.post_processing_status:
+            ErrorDialog("Not post processing anything!")
+            return
+        
+        self.stop_post_processing = True
+        ErrorDialog("Post process stopping soon...")
         
 
     @Slot(float)
     def update_progress_bar(self, progress):
         self.heatmap_progress_bar.setValue(progress)
 
-    def right_hand_selected(self):
-        self.right_handed = True
-        self.dropdown_button.setText('Right handed')
-
-    def left_hand_selected(self):
-        self.right_handed = False
-        self.dropdown_button.setText('Left handed')
+    @Slot(bool)
+    def update_post_processing_status(self, new_status : bool):
+        self.post_processing_status = new_status
 
     def select_folder(self):
         self.post_process_dir_label.setText("No directory selected")
@@ -94,13 +131,17 @@ class HeatmapTab(QWidget):
             self.post_process_dir_label.setText(file)
             self.selected_dir = file
 
-    def post_process_button(self):        
+    def post_process_button_sign_emit(self):        
         # Start the task in a separate thread
         thread = Thread(target=self.post_process)
         thread.start()
 
+    @Slot()
     def post_process(self):
-        hand_tag = 2 if self.right_handed else 1
+        if self.post_processing_status:
+            logger.error("Already post processing")
+            return
+        
         if not os.path.exists(self.selected_dir):
             ErrorDialog("Invalid directory for post processing")
             return
@@ -112,15 +153,15 @@ class HeatmapTab(QWidget):
             self.heatmap.plot(grid_hand_count)
             return
         
-        if not os.path.exists(os.path.join(self.selected_dir, "log.log")):
+        log_file = os.path.join(self.selected_dir, "log.log")
+        if not os.path.exists(log_file):
             ErrorDialog("Log file does not exist.")
             return
-        log_file = os.path.join(self.selected_dir, "log.log")
         
-        if not os.path.exists(os.path.join(self.selected_dir, "EgoHOS_Masks/")):
+        masks_dir = os.path.join(self.selected_dir, "EgoHOS_Masks")
+        if not os.path.exists(masks_dir):
             ErrorDialog("EgoHOS masks folder does not exist.")
             return
-        masks_dir = os.path.join(self.selected_dir, "EgoHOS_Masks")
 
         if not os.path.exists(os.path.join(self.selected_dir, "FoodSeg_Masks/")):
             ErrorDialog("FoodSeg masks folder does not exist.")
@@ -134,16 +175,21 @@ class HeatmapTab(QWidget):
             return
         msecs_frame = 2 * 1000 / fps    # · 2 porque las máscaras se guardan skipeando un frame (doblando el tiempo)
 
+        self.post_processing_signal.emit(True)
+
+        json_log = []
+
         result_logger = logger.bind(application="food_and_hands_post_process")
         result_logger.add(sink=os.path.join(self.selected_dir, "post_process.log"), rotation="10 MB")
-
-        height = 108
-        width = 192
-        grid_hand_count = np.zeros((height, width), dtype=np.int64)
         
         mask_files = os.listdir(masks_dir)
         mask_pngs = [filename for filename in mask_files if filename.endswith(".png")]
         mask_pngs.sort(key=lambda x: int(x.split(".")[0]))
+
+        np_image, hand_mask = img_tfms_inf(Path(os.path.join(masks_dir, mask_pngs[0])))
+        height = int(np_image.shape[0] / 10)
+        width = int(np_image.shape[1] / 10)
+        grid_hand_count = np.zeros((height, width), dtype=np.int64)
 
         superpixel_height = 10
         superpixel_width = 10
@@ -152,36 +198,36 @@ class HeatmapTab(QWidget):
         self.heatmap_progress_bar.setValue(percent_analyzed)
         percent_increase_per_frame = 100 / len(mask_pngs)
 
-        bocado_frames_timeout = 1000 / msecs_frame  # 1s de timeout para contar otro bocado si se dan las condiciones
-        result_logger.info(f"bocado frames: {bocado_frames_timeout}")
-        ultimo_bocado = 0
         bocado_count = 0
+        self.stop_post_processing = False
         for mask_filename in mask_pngs:
+            if self.stop_post_processing:
+                return
+            
             frame_number = int(mask_filename.split(".")[0])
-            percent_analyzed = percent_increase_per_frame * frame_number
-            # self.heatmap_progress_bar.setValue(percent_analyzed)
+            percent_analyzed = percent_increase_per_frame * (frame_number + 1)
             self.progress_bar_update.emit(percent_analyzed)
 
-            EgoHOS_Mask = cv2.imread(os.path.join(masks_dir, mask_filename), cv2.IMREAD_GRAYSCALE)
-            
-            hand_mask = remove_values_not_equal(EgoHOS_Mask, hand_tag)
-            hand_mask = convert_non_zero_to_255(hand_mask)
+            np_image, hand_mask = img_tfms_inf(Path(os.path.join(masks_dir, mask_filename)))
+            predictions = self.model.predict(hand_mask)
 
-            hand_width = compute_mask_width(hand_mask)
-            bottom_hand_mask = convert_values_above_5_percent_to_0(hand_mask)
-            bottom_hand_width = compute_mask_width(bottom_hand_mask)
+            json_frame_log = {
+                "frame_number" : frame_number,
+                "mask_id" : mask_filename,
+                "bocado" : False
+            }
 
-            if bottom_hand_width > 0.95 * hand_width:   # Bocado detectado
-                if frame_number - ultimo_bocado > bocado_frames_timeout:    # Cuantificar solo si hace rato que se cuantifica uno.
-                    bocado_count += 1
-                    result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
-                ultimo_bocado = frame_number
+            if (predictions[0] == "bite"):
+                bocado_count += 1
+                result_logger.info(f"Bocado detectado en frame {frame_number}. Segundo {frame_number * msecs_frame / 1000}")
+                json_frame_log["bocado"] = True
 
+            json_log.append(json_frame_log)
 
             for i in range(grid_hand_count.shape[0]):
                 for j in range(grid_hand_count.shape[1]):
                     # Get the region corresponding to the superpixel
-                    superpixel_region = hand_mask[i*superpixel_height:(i+1)*superpixel_height, 
+                    superpixel_region = np_image[i*superpixel_height:(i+1)*superpixel_height, 
                                                     j*superpixel_width:(j+1)*superpixel_width]
                     
                     # Check if any value in the superpixel region is equal to 255
@@ -190,7 +236,11 @@ class HeatmapTab(QWidget):
                         grid_hand_count[i, j] += 1
         
         cv2.imwrite(os.path.join(self.selected_dir, "heatmap.jpg"), grid_hand_count)
-        values_gotten = np.unique(grid_hand_count)
-        result_logger.info(f"Valores obtenidos: {values_gotten}")
-        result_logger.info(f"Cuenta de cucharadas: {bocado_count}")
+        result_logger.info(f"Cuenta de frames detectados como bocados: {bocado_count}")
         self.heatmap.plot(grid_hand_count)
+
+        with open(os.path.join(self.selected_dir, "post_process_log.json"), "w") as json_file:
+            json.dump(json_log, json_file)
+
+        self.post_processing_signal.emit(False)
+        
