@@ -25,6 +25,8 @@ conda create -n food_n_hands python==3.12 -y
 python -m pip install -r food_n_hands_req.txt
 ```
 
+### Incluir modelos en carpeta post_processing dentro de una carpeta */models*.
+Se incluye este [enlace](https://drive.google.com/drive/folders/15c9Lgvp7lNaPlAHmkhIQK32wpc_uIvZX?usp=sharing) para la descarga de los modelos.
 
 ## Cómo usar:
 ### Terminal 1:
